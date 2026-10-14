@@ -62,6 +62,10 @@ class Collection:
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path else db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # 截图目录必须跟着数据库走。之前这里用的是全局 image_dir(),
+        # 导致传了临时库路径时,图片仍然写/删到真实的收藏目录里(踩过坑)。
+        self.images = self.path.parent / "images"
+        self.images.mkdir(parents=True, exist_ok=True)
         self._init()
 
     def _connect(self) -> sqlite3.Connection:
@@ -141,7 +145,7 @@ class Collection:
         if image_png and item_id:
             name = str(item_id) + ".png"
             try:
-                (image_dir() / name).write_bytes(image_png)
+                (self.images / name).write_bytes(image_png)
                 with self._connect() as conn:
                     conn.execute("UPDATE items SET image_file = ? WHERE id = ?", (name, item_id))
             except OSError as exc:
@@ -173,7 +177,7 @@ class Collection:
             conn.execute("DELETE FROM items WHERE id = ?", (int(item_id),))
         if row and row["image_file"]:
             try:
-                (image_dir() / row["image_file"]).unlink(missing_ok=True)
+                (self.images / row["image_file"]).unlink(missing_ok=True)
             except OSError:
                 pass
 
@@ -216,7 +220,7 @@ class Collection:
         row = self.get_item(item_id)
         if not row or not row["image_file"]:
             return None
-        path = image_dir() / row["image_file"]
+        path = self.images / row["image_file"]
         return path if path.exists() else None
 
 

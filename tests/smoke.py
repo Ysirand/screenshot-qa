@@ -354,6 +354,10 @@ def test_collection_layer() -> None:
         check("写入两题", c.counts()[FOLDER_ALL] == 2, c.counts())
         check("分类计数正确", c.counts().get("数学") == 1, c.counts())
         check("截图落盘", c.image_path(first) is not None)
+        # 回归:传了临时库路径时,图片必须写在临时目录里,
+        # 不能碰到真实的 collection/images/(之前就是这么误删用户截图的)
+        check("截图写在临时目录里", str(c.image_path(first)).startswith(str(Path(tmp))),
+              str(c.image_path(first)))
 
         check("按分类筛选", len(c.items(folder="数学")) == 1)
         check("题干搜索", len(c.items(keyword="沸点")) == 1)
