@@ -16,7 +16,7 @@ from .answer_window import AnswerWindow
 from .collection import Collection, extract_title
 from .collection_window import show_collection_window
 from .floating_button import FloatingButton
-from .backend import backend_label, build_backend
+from .backend import backend_label, backend_short_label, build_backend
 from .config import (
     APP_NAME,
     APP_VERSION,
@@ -99,7 +99,7 @@ class AskWorker(QThread):
             self.failed.emit(str(exc))
             return
         except Exception as exc:  # pragma: no cover
-            log.exception("请求豆包时出错")
+            log.exception("请求后端时出错")
             self.failed.emit("发生未预期的错误:" + str(exc))
             return
 
@@ -214,18 +214,25 @@ class ScreenQaApp(QObject):
             self.start_capture()  # 遮罩已经开着的话 start_capture 会自己忽略
 
     def show_menu_at(self, point) -> None:
-        """悬浮按钮右键:弹一个专门给按钮用的菜单,收藏夹放最前面。"""
+        """悬浮按钮右键:弹一个专门给按钮用的菜单,收藏夹放最前面。
+
+        注意:菜单必须留一个引用(self._popup_menu)。QMenu 没有父对象时,
+        函数一返回就会被 Python 回收,菜单会瞬间消失 —— 之前"右键没反应"就是这个原因。
+        """
         from PySide6.QtWidgets import QMenu
 
-        menu = QMenu()
-        menu.addAction("截图搜题").triggered.connect(self.start_capture)
-        menu.addSeparator()
-        act = menu.addAction("📁 收藏夹")
-        act.triggered.connect(self.open_collection)
-        menu.addAction("设置…").triggered.connect(self.open_settings)
-        menu.addAction("显示/隐藏答案窗").triggered.connect(self.toggle_window)
-        menu.addSeparator()
-        menu.addAction("退出").triggered.connect(self.quit)
+        menu = getattr(self, "_popup_menu", None)
+        if menu is None:
+            # 挂在窗口下,保证对象活得够久
+            menu = QMenu(self.window)
+            menu.addAction("截图搜题").triggered.connect(self.start_capture)
+            menu.addSeparator()
+            menu.addAction("📁 收藏夹").triggered.connect(self.open_collection)
+            menu.addAction("设置…").triggered.connect(self.open_settings)
+            menu.addAction("显示/隐藏答案窗").triggered.connect(self.toggle_window)
+            menu.addSeparator()
+            menu.addAction("退出").triggered.connect(self.quit)
+            self._popup_menu = menu
         menu.popup(point)
 
     def _start_control_server(self) -> None:
@@ -388,7 +395,7 @@ class ScreenQaApp(QObject):
         self._last_question = "请解答截图中的这道题。"
         self._restore_ball()
         self.window.begin(
-            rect, (pixmap.width(), pixmap.height()), source_label=backend_label(self.cfg)
+            rect, (pixmap.width(), pixmap.height()), source_label=backend_short_label(self.cfg)
         )
         self._start_worker(self._last_image, self._last_question, previous=None)
 
@@ -440,7 +447,12 @@ class ScreenQaApp(QObject):
         self._last_answer = self.window.answer_text
         self._save_history()
         if bool(self.cfg["behavior"].get("notify_on_done", False)) and not self.window.isVisible():
-            self.tray.showMessage(APP_NAME, "豆包已经给出解答", QSystemTrayIcon.MessageIcon.Information, 2500)
+            self.tray.showMessage(
+                APP_NAME,
+                backend_short_label(self.cfg) + " 已经给出解答",
+                QSystemTrayIcon.MessageIcon.Information,
+                2500,
+            )
 
     def on_failed(self, message: str) -> None:
         self.window.fail(message)
@@ -520,7 +532,7 @@ class ScreenQaApp(QObject):
         name = str(self.cfg.get("backend", "openai") or "openai")
 
         if name == "openai" and not str(self.cfg["api"].get("api_key") or "").strip():
-            toast("还没有配置豆包 API Key,右键托盘图标 -> 设置", 5200, "#FFB020")
+            toast("还没有配置 API Key,右键托盘图标 -> 设置", 5200, "#FFB020")
             return
         if name == "workbuddy_acp":
             from .workbuddy_acp_backend import workbuddy_running

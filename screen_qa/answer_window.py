@@ -109,7 +109,7 @@ class AnswerWindow(QWidget):
         self._phase = "idle"   # idle / answer / followup
         self._question_rect = QRect()
 
-        self.setWindowTitle("豆包解答")
+        self.setWindowTitle("解答")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -168,7 +168,7 @@ class AnswerWindow(QWidget):
         self._dot = QLabel("●", header)
         self._dot.setObjectName("headerDot")
         self._dot.setStyleSheet("color: " + _ACCENT + ";")
-        self._title = QLabel("豆包解答", header)
+        self._title = QLabel("解答", header)
         self._title.setObjectName("title")
         header.setToolTip("按住这里(或窗口空白处)可以拖动这个窗口")
         self._status = QLabel("待命", header)
@@ -262,7 +262,7 @@ class AnswerWindow(QWidget):
 
     def set_source_label(self, text: str) -> None:
         """标题栏显示这次是谁在回答。"""
-        self._title.setText(text or "豆包解答")
+        self._title.setText(text or "解答")
 
     def begin(self, question_rect: QRect, image_size: tuple[int, int], source_label: str = "") -> None:
         """开始一次新的提问。"""
@@ -274,7 +274,7 @@ class AnswerWindow(QWidget):
         self._body.clear()
         self._body.setHtml(
             '<div style="color:#93A0B4">已截取题目 ' + str(image_size[0]) + " x " + str(image_size[1])
-            + ",正在提交给豆包…</div>"
+            + ",正在交给「" + (source_label or "AI") + "」解答…</div>"
         )
         self._copy_button.setEnabled(False)
         self._followup.setEnabled(False)
@@ -284,7 +284,7 @@ class AnswerWindow(QWidget):
         self._save_button.setEnabled(False)
         self._save_button.setToolTip("把这道题收进收藏夹(可以选分类)")
         self._dot.setStyleSheet("color: " + _ACCENT + ";")
-        self._title.setText(source_label or "豆包解答")
+        self._title.setText(source_label or "解答")
         self._status.setText("思考中…")
         self._tick_timer.start()
         self._hide_timer.stop()

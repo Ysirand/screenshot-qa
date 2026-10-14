@@ -25,6 +25,14 @@ BACKEND_CHOICES: list[tuple[str, str]] = [
 ]
 
 BACKEND_LABELS = {key: label for key, label in BACKEND_CHOICES}
+
+# 界面上显示用的短名字(标题栏、提示语里用,别太长)
+BACKEND_SHORT = {
+    "workbuddy_acp": "WorkBuddy",
+    "openai": "豆包 API",
+    "cli": "本地 CLI",
+    "simple": "自定义接口",
+}
 DEFAULT_BACKEND = "workbuddy_acp"
 
 
@@ -67,7 +75,13 @@ def build_backend(cfg: dict) -> Any:
 
 
 def backend_label(cfg: dict) -> str:
+    """下拉框里那个完整名字(带说明)。"""
     return BACKEND_LABELS.get(str(get(cfg, "backend", DEFAULT_BACKEND)), "未知后端")
+
+
+def backend_short_label(cfg: dict) -> str:
+    """简短名字,用在窗口标题和提示语里。"""
+    return BACKEND_SHORT.get(str(get(cfg, "backend", DEFAULT_BACKEND)), "解答")
 
 
 __all__ = [
@@ -77,5 +91,6 @@ __all__ = [
     "DEFAULT_BACKEND",
     "OpenAiBackend",
     "backend_label",
+    "backend_short_label",
     "build_backend",
 ]
