@@ -11,6 +11,10 @@ from typing import Any
 APP_NAME = "截图自动搜题"
 APP_VERSION = "1.0.0"
 
+# 提示词版本:以后改了默认提示词就 +1,
+# 老用户的 config.json 里存着旧提示词,靠这个自动升级(不然新要求永远不生效)
+PROMPT_VERSION = 2
+
 DEFAULT_CONFIG: dict[str, Any] = {
     # 谁来回答:workbuddy_acp(本地 WorkBuddy,推荐) / openai(官方 API)
     #            / cli(本地智能体命令行) / simple(自定义 HTTP 接口)
@@ -60,6 +64,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 180,
     },
     "hotkey": "Alt+Q",
+    "prompt_version": PROMPT_VERSION,
     "system_prompt": (
         "你是一个答题助手。用户会发来一道题目(可能是选择题、填空题、判断题或解答题)的截图。\n"
         "请严格按照下面的格式回答:\n"
@@ -88,6 +93,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "autostart": False,
 }
 
+
+# 历史上出现过的默认提示词(用来判断用户是否自己改过)
+_LEGACY_PROMPTS: set[str] = {
+    (
+        "你是一个答题助手。用户会发来一道题目(可能是选择题、填空题、判断题或解答题)的截图。\n"
+        "请严格按照下面的格式回答:\n"
+        "1. 第一行用【答案】开头,直接给出最终答案。选择题给出选项字母及选项内容;"
+        "填空题/解答题给出关键结果。\n"
+        "2. 空一行后,用【解析】开头,给出简明、分步骤的讲解,说明为什么选它、其他选项错在哪里。\n"
+        "3. 若图片模糊、信息不全或含多道题,请指出,并按题号分别作答。\n"
+        "请用简体中文回答,不要重复题目原文,不要输出与题目无关的内容。"
+    ),
+}
 
 def app_dir() -> Path:
     """程序根目录(打包后为 exe 所在目录)。"""
@@ -130,7 +148,11 @@ def deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config() -> dict:
-    """读取配置;文件不存在或损坏时回落到默认值。"""
+    """读取配置;文件不存在或损坏时回落到默认值。
+
+    如果配置文件里存的是**旧版默认提示词**,自动升级成新版
+    (否则我们改了默认提示词,老用户永远用不上)。
+    """
     path = config_path()
     data: dict = {}
     if path.exists():
@@ -140,7 +162,24 @@ def load_config() -> dict:
                 data = {}
         except Exception:
             data = {}
-    return deep_merge(DEFAULT_CONFIG, data)
+
+    cfg = deep_merge(DEFAULT_CONFIG, data)
+    _migrate_prompt(cfg, data)
+    return cfg
+
+
+def _migrate_prompt(cfg: dict, raw: dict) -> None:
+    """把老配置里的旧默认提示词升级成新版(用户自己改过的提示词不动)。"""
+    saved_version = int(raw.get("prompt_version") or 0)
+    saved_prompt = str(raw.get("system_prompt") or "")
+    if saved_version >= PROMPT_VERSION:
+        return
+    if saved_prompt and saved_prompt not in _LEGACY_PROMPTS:
+        # 用户自己改过提示词 —— 尊重他的,只把版本号跟上
+        cfg["prompt_version"] = PROMPT_VERSION
+        return
+    cfg["system_prompt"] = DEFAULT_CONFIG["system_prompt"]
+    cfg["prompt_version"] = PROMPT_VERSION
 
 
 def save_config(cfg: dict) -> None:

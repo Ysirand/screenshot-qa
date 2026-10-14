@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -32,6 +33,57 @@ from .logging_setup import log
 from .toast import toast
 
 _ALL_LABEL = "全部题目"
+_THUMB_SIZE = QSize(112, 44)      # 列表里缩略图的尺寸
+_ROW_HEIGHT = 54                  # 列表行高(要放得下缩略图)
+
+
+class ImagePreview(QLabel):
+    """按比例缩放显示截图,点一下可以打开原图。"""
+
+    clicked = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumWidth(240)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Ignored)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            "QLabel { background: rgba(128,128,128,28); border: 1px solid rgba(128,128,128,60);"
+            " border-radius: 8px; color: #8A93A5; }"
+        )
+        self._source: QPixmap | None = None
+        self.setText("选择左边的题目\n这里显示题目截图")
+
+    def set_image(self, pixmap: QPixmap | None) -> None:
+        self._source = pixmap
+        if pixmap is None or pixmap.isNull():
+            self.setText("(这道题没有截图)")
+            self.setToolTip("")
+            return
+        self.setText("")
+        self.setToolTip("点一下看原图")
+        self._rescale()
+
+    def _rescale(self) -> None:
+        if self._source is None or self._source.isNull():
+            return
+        available = self.size()
+        if available.width() < 20 or available.height() < 20:
+            return
+        self.setPixmap(self._source.scaled(
+            available, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+
+    def resizeEvent(self, event):  # noqa: N802
+        self._rescale()
+        super().resizeEvent(event)
+
+    def mousePressEvent(self, event):  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 _UNSORTED_LABEL = "未分类"
 
 
@@ -49,8 +101,8 @@ class CollectionWindow(QDialog):
 
         self.setWindowTitle("收藏夹 - 截图自动搜题")
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
-        self.setMinimumSize(880, 560)
-        self.resize(980, 640)
+        self.setMinimumSize(940, 600)
+        self.resize(1120, 700)
         self._build_ui()
         self.reload()
 
@@ -106,15 +158,30 @@ class CollectionWindow(QDialog):
         right_box.setSpacing(6)
 
         self.item_list = QListWidget(right)
+        self.item_list.setIconSize(_THUMB_SIZE)
+        self.item_list.setSpacing(2)
         self.item_list.currentRowChanged.connect(self._on_item_changed)
         right_box.addWidget(self.item_list, 3)
 
         detail = QWidget(right)
-        detail_box = QVBoxLayout(detail)
+        detail_box = QHBoxLayout(detail)
         detail_box.setContentsMargins(0, 0, 0, 0)
-        detail_box.setSpacing(6)
+        detail_box.setSpacing(10)
 
-        row1 = QWidget(detail)
+        # 左:题目截图大图
+        self.preview = ImagePreview(detail)
+        self.preview.setFixedWidth(260)
+        self.preview.clicked.connect(self.open_image)
+        detail_box.addWidget(self.preview)
+
+        # 右:文字
+        text_panel = QWidget(detail)
+        text_box = QVBoxLayout(text_panel)
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(6)
+        detail_box.addWidget(text_panel, 1)
+
+        row1 = QWidget(text_panel)
         row1_box = QHBoxLayout(row1)
         row1_box.setContentsMargins(0, 0, 0, 0)
         row1_box.addWidget(QLabel("题干", row1))
@@ -123,25 +190,25 @@ class CollectionWindow(QDialog):
         row1_box.addStretch(1)
         row1_box.addWidget(QLabel("分类", row1))
         row1_box.addWidget(self.folder_combo)
-        detail_box.addWidget(row1)
+        text_box.addWidget(row1)
 
         self.question_edit = QPlainTextEdit(detail)
         self.question_edit.setPlaceholderText("题干(可编辑,方便改错字)")
         self.question_edit.setFixedHeight(70)
-        detail_box.addWidget(self.question_edit)
+        text_box.addWidget(self.question_edit)
 
-        detail_box.addWidget(QLabel("答案"))
+        text_box.addWidget(QLabel("答案"))
         self.answer_edit = QPlainTextEdit(detail)
         self.answer_edit.setPlaceholderText("答案")
-        detail_box.addWidget(self.answer_edit, 1)
+        text_box.addWidget(self.answer_edit, 1)
 
-        detail_box.addWidget(QLabel("我的批注"))
+        text_box.addWidget(QLabel("我的批注"))
         self.note_edit = QPlainTextEdit(detail)
         self.note_edit.setFixedHeight(64)
         self.note_edit.setPlaceholderText("随手写点易错点、思路…(本地保存,即时)")
-        detail_box.addWidget(self.note_edit)
+        text_box.addWidget(self.note_edit)
 
-        btns = QWidget(detail)
+        btns = QWidget(text_panel)
         btn_row = QHBoxLayout(btns)
         btn_row.setContentsMargins(0, 0, 0, 0)
         self.save_btn = QPushButton("保存修改", btns)
@@ -157,7 +224,7 @@ class CollectionWindow(QDialog):
         btn_row.addWidget(image_btn)
         btn_row.addStretch(1)
         btn_row.addWidget(del_item_btn)
-        detail_box.addWidget(btns)
+        text_box.addWidget(btns)
 
         right_box.addWidget(detail, 4)
         splitter.addWidget(right)
@@ -209,16 +276,40 @@ class CollectionWindow(QDialog):
                 self.folder_combo.setCurrentIndex(index)
         self.folder_combo.blockSignals(False)
 
+    def _thumbnail(self, item_id: int) -> QPixmap | None:
+        """列表里的小图(带缓存,切分类不会反复解码)。"""
+        cache = getattr(self, "_thumb_cache", None)
+        if cache is None:
+            cache = self._thumb_cache = {}
+        if item_id in cache:
+            return cache[item_id]
+        path = self.collection.image_path(item_id)
+        pixmap = None
+        if path is not None:
+            raw = QPixmap(str(path))
+            if not raw.isNull():
+                pixmap = raw.scaled(_THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio,
+                                    Qt.TransformationMode.SmoothTransformation)
+        cache[item_id] = pixmap
+        return pixmap
+
     def reload_items(self) -> None:
         self._loading = True
         self.item_list.clear()
         rows = self.collection.items(folder=self._current_folder, keyword=self.search.text())
         for row in rows:
-            title = (row["question"] or "(没有题干)").strip().splitlines()[0][:60] if row["question"] else "(没有题干)"
+            item_id = int(row["id"])
+            title = (row["question"] or "").strip().splitlines()[0][:60] if row["question"] else "(没有题干)"
             folder = row["folder"] or _UNSORTED_LABEL
             text = "%s  ·  %s   [%s]" % (row["created_at"][5:16], title, folder)
             item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, int(row["id"]))
+            item.setData(Qt.ItemDataRole.UserRole, item_id)
+            thumb = self._thumbnail(item_id)
+            if thumb is not None:
+                from PySide6.QtGui import QIcon
+
+                item.setIcon(QIcon(thumb))
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self.item_list.addItem(item)
         self._loading = False
         self._current_item = None
@@ -227,6 +318,7 @@ class CollectionWindow(QDialog):
             self.item_list.setCurrentRow(0)
 
     def _clear_detail(self) -> None:
+        self.preview.set_image(None)
         self._loading = True
         self.question_edit.setPlainText("")
         self.answer_edit.setPlainText("")
@@ -259,6 +351,8 @@ class CollectionWindow(QDialog):
         if record is None:
             return
         self._current_item = item_id
+        path = self.collection.image_path(item_id)
+        self.preview.set_image(QPixmap(str(path)) if path is not None else None)
         self._loading = True
         self.question_edit.setPlainText(record["question"] or "")
         self.answer_edit.setPlainText(record["answer"] or "")
@@ -340,6 +434,7 @@ class CollectionWindow(QDialog):
         if answer != QMessageBox.StandardButton.Yes:
             return
         self.collection.delete_item(self._current_item)
+        getattr(self, "_thumb_cache", {}).pop(self._current_item, None)
         self.reload()
         toast("已删除", 1500)
         self.changed.emit()
