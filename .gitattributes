@@ -1,0 +1,13 @@
+# 仓库里统一用 LF 存:
+# .command / .sh 如果是 CRLF,macOS 上双击会报 "bad interpreter"
+* text=auto eol=lf
+*.command text eol=lf
+*.sh      text eol=lf
+*.py      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+# Windows 批处理反过来,必须是 CRLF
+*.bat     text eol=crlf
+# 二进制
+*.png binary
+*.ico binary

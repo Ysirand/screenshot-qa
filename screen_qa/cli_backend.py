@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -85,11 +86,21 @@ def _find_workbuddy_dirs() -> list[Path]:
                 except OSError:
                     continue
 
-    for drive in ("C:", "D:", "E:", "F:"):
-        found.append(Path(drive + "\\") / "workbuddy")
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        found.append(Path(local_appdata) / "Programs" / "workbuddy")
+    if sys.platform == "darwin":
+        # macOS:WorkBuddy / CodeBuddy 一般装在 /Applications 下
+        for app in ("WorkBuddy", "CodeBuddy", "CodeBuddy Code"):
+            found.append(
+                Path("/Applications") / (app + ".app") / "Contents" / "Resources"
+            )
+            found.append(
+                Path.home() / "Applications" / (app + ".app") / "Contents" / "Resources"
+            )
+    else:
+        for drive in ("C:", "D:", "E:", "F:"):
+            found.append(Path(drive + "\\") / "workbuddy")
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            found.append(Path(local_appdata) / "Programs" / "workbuddy")
     for env_name in ("WORKBUDDY_RESOURCES_PATH", "WORKBUDDY_APP_PATH"):
         value = os.environ.get(env_name)
         if value:
@@ -130,6 +141,10 @@ def _find_node() -> str | None:
     which = shutil.which("node")
     if which:
         return which
+    if sys.platform == "darwin":
+        for candidate in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
+            if Path(candidate).is_file():
+                return candidate
     home = Path.home() / ".workbuddy" / "binaries"
     for pattern in ("node/node.exe", "node/*/node.exe", "node/bin/node.exe"):
         for candidate in home.glob(pattern):

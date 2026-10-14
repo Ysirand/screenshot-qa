@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QPixmap
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import plat
 from .collection import DEFAULT_FOLDER, FOLDER_ALL, Collection
 from .logging_setup import log
 from .toast import toast
@@ -570,7 +570,7 @@ class CollectionWindow(QDialog):
             toast("这道题没有截图", 1500)
             return
         try:
-            os.startfile(str(path))  # noqa: S606
+            plat.open_path(path)
         except OSError as exc:
             log.warning("打开图片失败: %s", exc)
             toast("打开失败:" + str(exc), 2000)

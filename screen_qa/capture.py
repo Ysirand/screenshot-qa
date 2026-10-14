@@ -55,6 +55,10 @@ def _grab_with_mss(screen) -> QPixmap:
 
 def grab_screen(screen) -> QPixmap:
     """抓一整个屏幕。"""
+    from . import plat
+
+    if plat.IS_MACOS and not plat.macos_has_screen_permission():
+        log.warning("macOS 没有屏幕录制权限,截出来可能只有壁纸")
     pixmap = QPixmap()
     try:
         pixmap = screen.grabWindow(0)

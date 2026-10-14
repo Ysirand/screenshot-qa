@@ -20,6 +20,9 @@ from screen_qa.api import ApiError, DoubaoClient  # noqa: E402
 from screen_qa.hotkey import MOD_ALT, MOD_CONTROL, MOD_SHIFT, parse_hotkey  # noqa: E402
 from tests.mock_ark import MockArk, _has_image  # noqa: E402
 
+IS_WINDOWS = sys.platform == "win32"
+IS_MACOS = sys.platform == "darwin"
+
 PASSED: list[str] = []
 FAILED: list[str] = []
 
@@ -465,6 +468,43 @@ def test_floating_button(qapp) -> None:
     button.deleteLater()
 
 
+def test_macos_support() -> None:
+    section("macOS 支持(纯逻辑,任何平台都能测)")
+    from screen_qa import plat
+    from screen_qa.autostart import _plist_text
+    from screen_qa.hotkey_mac import to_pynput
+
+    for spec, want in (
+        ("Alt+Q", "<alt>+q"),
+        ("Cmd+Shift+A", "<cmd>+<shift>+a"),
+        ("Ctrl+Alt+S", "<ctrl>+<alt>+s"),
+        ("Cmd+F2", "<cmd>+<f2>"),
+        ("Alt+Space", "<alt>+<space>"),
+        ("Cmd+Up", "<cmd>+<up>"),
+    ):
+        got = to_pynput(spec)
+        check("快捷键转换 " + spec, got == want, got)
+
+    for bad in ("", "Q", "Alt+", "Alt+Q+W", "Alt+Foo"):
+        try:
+            to_pynput(bad)
+            check("拒绝非法快捷键 " + repr(bad), False, "竟然通过了")
+        except ValueError:
+            check("拒绝非法快捷键 " + repr(bad), True)
+
+    plist = _plist_text()
+    check("LaunchAgent 是合法 plist 头", plist.startswith("<?xml") and plist.strip().endswith("</plist>"))
+    check("LaunchAgent 设了 RunAtLoad", "<key>RunAtLoad</key>" in plist and "<true/>" in plist)
+    check("LaunchAgent 带上了启动命令", "main.py" in plist or ".app" in plist)
+
+    cmd = plat.launch_command()
+    check("launch_command 非空", isinstance(cmd, list) and len(cmd) >= 1, str(cmd))
+    check("平台标志互斥", not (plat.IS_WINDOWS and plat.IS_MACOS))
+    check("非 macOS 时屏幕权限视为已授权", plat.IS_MACOS or plat.macos_has_screen_permission())
+    check("get_window_rect 在非 Windows 上返回 None",
+          plat.IS_WINDOWS or __import__("screen_qa.winutil", fromlist=["x"]).get_window_rect(0) is None)
+
+
 def test_ui(qapp) -> None:
     from PySide6.QtCore import QPoint, QRect, Qt
     from PySide6.QtGui import QColor, QGuiApplication, QImage, QMouseEvent, QPainter, QPixmap
@@ -552,13 +592,12 @@ def test_ui(qapp) -> None:
     canvas2.save(str(out / "overlay_hover.png"))
     check("遮罩可渲染出图(悬停态)", (out / "overlay_hover.png").exists())
 
-    # ---- 全局热键:走真实的 WM_HOTKEY 通道 ----
+    # ---- 全局热键:走真实的 WM_HOTKEY 通道(Windows 专属)----
     section("全局热键(真实 Win32 通道)")
-    import ctypes
-
-    from screen_qa.hotkey import WM_HOTKEY, user32
     from screen_qa.app import ScreenQaApp
     from tests.mock_ark import MockArk as _MockArk
+    if not IS_WINDOWS:
+        print("  [SKIP] macOS/Linux 上没有 WM_HOTKEY,跳过(热键实现换成了 pynput)")
 
     with _MockArk() as mock:
         controller = ScreenQaApp(qapp)
@@ -576,24 +615,28 @@ def test_ui(qapp) -> None:
         else:
             # 允许本机已经有实例占着这个键(比如用户自己开着),此时必须给出明确提示
             check(
-                "热键被占用时优雅降级",
-                bool(controller._hotkey_error) and "占用" in controller._hotkey_error,
+                "热键不可用时优雅降级(给出提示)",
+                bool(controller._hotkey_error),
                 controller._hotkey_error,
             )
 
-        fired: list = []
-        controller.hotkey.activated.disconnect(controller.start_capture)
-        controller.hotkey.activated.connect(lambda: fired.append(1))
-        user32.PostThreadMessageW(
-            ctypes.windll.kernel32.GetCurrentThreadId(), WM_HOTKEY, 0xB001, 0
-        )
-        deadline = time.time() + 3
-        while time.time() < deadline and not fired:
-            qapp.processEvents()
-            time.sleep(0.02)
-        check("WM_HOTKEY 能触发回调", bool(fired))
+        if IS_WINDOWS:
+            import ctypes
 
-        controller.hotkey.activated.connect(controller.start_capture)
+            from screen_qa.hotkey import WM_HOTKEY, user32
+
+            fired: list = []
+            controller.hotkey.activated.disconnect(controller.start_capture)
+            controller.hotkey.activated.connect(lambda: fired.append(1))
+            user32.PostThreadMessageW(
+                ctypes.windll.kernel32.GetCurrentThreadId(), WM_HOTKEY, 0xB001, 0
+            )
+            deadline = time.time() + 3
+            while time.time() < deadline and not fired:
+                qapp.processEvents()
+                time.sleep(0.02)
+            check("WM_HOTKEY 能触发回调", bool(fired))
+            controller.hotkey.activated.connect(controller.start_capture)
 
         # ---- 端到端:截到图 -> 发给(假)豆包 -> 悬浮窗显示 ----
         section("端到端")
@@ -654,7 +697,10 @@ def test_ui(qapp) -> None:
         if active:
             first = overlay._overlays[0]
             physics = first.physical_rect()
-            check("拿到遮罩的物理矩形", physics is not None, str(physics))
+            if IS_WINDOWS:
+                check("拿到遮罩的物理矩形", physics is not None, str(physics))
+            else:
+                check("macOS 上物理矩形返回 None(优雅降级)", physics is None, str(physics))
             if physics:
                 left, top, width, height = physics
                 top_left = first._global_phys_to_local(left, top)
@@ -711,6 +757,7 @@ def main() -> int:
     qapp = QApplication.instance() or QApplication(sys.argv)
 
     print("截图自动搜题 - 冒烟测试")
+    print("平台:", sys.platform, "(Windows 专属的用例会自动跳过)" if not IS_WINDOWS else "")
     test_markdown()
     test_hotkey_parse()
 
@@ -723,6 +770,7 @@ def main() -> int:
     test_cli_backend(out_dir)
     test_acp_helpers()
     test_collection_layer()
+    test_macos_support()
 
     test_ui(qapp)
     test_floating_button(qapp)

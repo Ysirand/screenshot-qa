@@ -16,6 +16,8 @@ from .answer_window import AnswerWindow
 from .collection import Collection, extract_title
 from .collection_window import show_collection_window
 from .floating_button import FloatingButton
+from .hotkey_mac import create_hotkey
+from . import plat
 from .backend import backend_label, backend_short_label, build_backend
 from .config import (
     APP_NAME,
@@ -28,7 +30,6 @@ from .config import (
     save_config,
 )
 from .errors import BackendError
-from .hotkey import GlobalHotkey
 from .logging_setup import log
 from .overlay import SelectionOverlay
 from .settings_dialog import SettingsDialog
@@ -147,7 +148,7 @@ class ScreenQaApp(QObject):
         self.overlay.selected.connect(self.on_region_selected)
         self.overlay.cancelled.connect(self.on_capture_cancelled)
 
-        self.hotkey = GlobalHotkey(self)
+        self.hotkey = create_hotkey(self)
         self.hotkey.activated.connect(self.start_capture)
 
         self._build_tray()
@@ -157,6 +158,8 @@ class ScreenQaApp(QObject):
         if not ok:
             self._hotkey_error = message
             log.warning("热键注册失败:%s", message)
+            if plat.IS_MACOS and "辅助功能" not in message:
+                self._hotkey_error = message + "\n" + plat.macos_accessibility_hint()
 
     # ---------- 托盘 ----------
 
@@ -332,16 +335,12 @@ class ScreenQaApp(QObject):
             self.window.show_window()
 
     def open_history(self) -> None:
-        import os
-
-        os.startfile(str(history_dir()))  # noqa: S606
+        plat.open_path(history_dir())
 
     def open_logs(self) -> None:
-        import os
-
         path = app_dir() / "logs"
         path.mkdir(parents=True, exist_ok=True)
-        os.startfile(str(path))  # noqa: S606
+        plat.open_path(path)
 
     def toggle_autostart(self, enabled: bool) -> None:
         ok, message = autostart.set_enabled(enabled)
@@ -357,6 +356,16 @@ class ScreenQaApp(QObject):
 
     def start_capture(self) -> None:
         if self.overlay.active:
+            return
+        if plat.IS_MACOS and not plat.macos_has_screen_permission():
+            # macOS 没给「屏幕录制」权限的话,截出来只有壁纸/一片黑
+            plat.macos_request_screen_permission()
+            toast(
+                "macOS 需要「屏幕录制」权限:系统设置 → 隐私与安全性 → 屏幕录制,"
+                "勾上本程序后重启一次",
+                8000,
+                "#FFB020",
+            )
             return
         if self._worker is not None and self._worker.isRunning():
             # 上一题还在跑,直接取消,开始新的一题
