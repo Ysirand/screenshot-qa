@@ -1,0 +1,65 @@
+{
+  "backend": "workbuddy_acp",
+  "workbuddy_acp": {
+    "reuse_session": true,
+    "cwd": "",
+    "timeout_seconds": 300,
+    "thought_level": "low",
+    "model": "",
+    "warm_up": true
+  },
+  "api": {
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_key": "在这里粘贴你的火山方舟 API Key(用默认的 WorkBuddy 后端时不需要)",
+    "model": "doubao-seed-1-6-250615",
+    "temperature": 0.2,
+    "max_tokens": 4096,
+    "timeout": 180,
+    "thinking": "disabled"
+  },
+  "floating_button": {
+    "enabled": true,
+    "size": 46,
+    "opacity": 0.62,
+    "snap_edges": true,
+    "trigger": "single",
+    "pos": null
+  },
+  "cli": {
+    "command": "",
+    "tools": "Read",
+    "permission_mode": "",
+    "extra_args": [],
+    "env": {
+      "CODEBUDDY_AUTH_TOKEN": "",
+      "CODEBUDDY_BASE_URL": ""
+    },
+    "timeout_seconds": 300
+  },
+  "simple": {
+    "url": "",
+    "headers": {},
+    "prompt_field": "prompt",
+    "image_field": "image_base64",
+    "response_path": "",
+    "timeout_seconds": 180
+  },
+  "hotkey": "Alt+Q",
+  "system_prompt": "你是一个答题助手。用户会发来一道题目(可能是选择题、填空题、判断题或解答题)的截图。\n请严格按照下面的格式回答:\n1. 第一行用【答案】开头,直接给出最终答案。选择题给出选项字母及选项内容;填空题/解答题给出关键结果。\n2. 空一行后,用【解析】开头,给出简明、分步骤的讲解,说明为什么选它、其他选项错在哪里。\n3. 若图片模糊、信息不全或含多道题,请指出,并按题号分别作答。\n请用简体中文回答,不要重复题目原文,不要输出与题目无关的内容。",
+  "followup_prompt": "针对上面这道题,继续解答用户的追问:{question}",
+  "appearance": {
+    "opacity": 0.94,
+    "font_size": 15,
+    "width": 580,
+    "height": 480,
+    "auto_hide_seconds": 0,
+    "last_pos": null
+  },
+  "behavior": {
+    "save_history": true,
+    "copy_answer_to_clipboard": false,
+    "show_window_highlight": true,
+    "notify_on_done": false
+  },
+  "autostart": false
+}
