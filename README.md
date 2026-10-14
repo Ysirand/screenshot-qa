@@ -36,8 +36,8 @@ Windows 桌面小工具:**点一下悬浮按钮 → 框选题目 → 答案直�
 **方式二(用 git)**:
 
 ```bat
-git clone https://github.com/<你的用户名>/<仓库名>.git
-cd <仓库名>
+git clone https://github.com/Ysirand/screenshot-qa.git
+cd screenshot-qa
 install.bat
 ```
 
