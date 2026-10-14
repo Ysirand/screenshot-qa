@@ -1,0 +1,23 @@
+# 虚拟环境
+.venv/
+
+# 本地配置(里面有 API Key / 你的个人设置,别提交)
+config.json
+
+# 运行产物与个人数据
+logs/
+history/
+collection/
+tests/_output/
+
+# 临时脚本
+_*.py
+_*.txt
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 系统
+Thumbs.db
+desktop.ini
