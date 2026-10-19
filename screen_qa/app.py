@@ -119,6 +119,7 @@ class ScreenQaApp(QObject):
         self.cfg = load_config()
         self._worker: AskWorker | None = None
         self._last_image: bytes | None = None
+        self._fallback_used = False
         self._ball_was_visible = False
         self._last_question = ""
         self._last_answer = ""
@@ -130,6 +131,7 @@ class ScreenQaApp(QObject):
         self.window.followup_requested.connect(self.ask_followup)
         self.window.recapture_requested.connect(self.start_capture)
         self.window.save_requested.connect(self.save_current_question)
+        self.window.retry_requested.connect(self.retry_last)
         self.window.open_collection_requested.connect(self.open_collection)
 
         # 桌面上的悬浮小按钮
@@ -180,6 +182,9 @@ class ScreenQaApp(QObject):
 
         act_settings = menu.addAction("设置…")
         act_settings.triggered.connect(self.open_settings)
+
+        act_check = menu.addAction("重新检测连接")
+        act_check.triggered.connect(self.check_backend)
 
         act_collection = menu.addAction("收藏夹…")
         act_collection.triggered.connect(self.open_collection)
@@ -402,6 +407,7 @@ class ScreenQaApp(QObject):
         self._last_image = png
         self._last_answer = ""
         self._last_question = "请解答截图中的这道题。"
+        self._fallback_used = False
         self._restore_ball()
         self.window.begin(
             rect, (pixmap.width(), pixmap.height()), source_label=backend_short_label(self.cfg)
@@ -420,6 +426,57 @@ class ScreenQaApp(QObject):
         self._start_worker(self._last_image, question, previous=context)
 
     # ---------- 请求 ----------
+
+    def retry_last(self) -> None:
+        """重连后端再试一次上次那道题(不用重新截图)。"""
+        if not self._last_image:
+            toast("还没有题目,先截一张吧", 1800)
+            return
+        if hasattr(self.backend, "reconnect"):
+            self.backend.reconnect()
+        toast("正在重新连接…", 2000)
+        self.window.begin(
+            self.window._question_rect, (0, 0), source_label=backend_short_label(self.cfg)
+        )
+        self._start_worker(self._last_image, self._last_question or "请解答这道题。", None)
+
+    def check_backend(self) -> None:
+        """托盘菜单:重新检测后端是否可用(不提问)。"""
+        backend = self.backend
+
+        def run() -> None:
+            try:
+                message = backend.test()
+                log.info("后端自检: %s", message)
+                toast("连接正常:" + message.splitlines()[0][:40], 3000)
+            except BackendError as exc:
+                log.warning("后端自检失败: %s", exc)
+                toast(str(exc).splitlines()[0][:60], 5000, "#FF6B6B")
+            except Exception as exc:
+                toast("检测失败:" + str(exc)[:50], 4000, "#FF6B6B")
+
+        threading.Thread(target=run, name="backend-check", daemon=True).start()
+
+    def _switch_to_fallback(self) -> bool:
+        """主后端失败时,自动换用配置里的备用后端(每次提问只换一次)。"""
+        name = str(self.cfg.get("fallback_backend") or "").strip()
+        if not name or name == str(self.cfg.get("backend")) or self._fallback_used:
+            return False
+        self._fallback_used = True
+        temp = dict(self.cfg)
+        temp["backend"] = name
+        try:
+            self.backend = build_backend(temp)
+        except Exception as exc:
+            log.warning("切换备用后端失败: %s", exc)
+            return False
+        log.info("已自动切换到备用后端: %s", name)
+        toast("主后端不可用,已自动切换到 " + backend_short_label(temp), 3600, "#FFB020")
+        self.window.begin(
+            self.window._question_rect, (0, 0), source_label=backend_short_label(temp)
+        )
+        self._start_worker(self._last_image or b"", self._last_question or "请解答这道题。", None)
+        return True
 
     def _start_worker(self, image: bytes, question: str, previous: str | None) -> None:
         self._cancel_worker()
@@ -464,8 +521,10 @@ class ScreenQaApp(QObject):
             )
 
     def on_failed(self, message: str) -> None:
-        self.window.fail(message)
         log.warning("请求失败: %s", message)
+        if self._switch_to_fallback():
+            return
+        self.window.fail(message)
 
     # ---------- 历史 ----------
 

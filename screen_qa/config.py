@@ -19,6 +19,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # 谁来回答:workbuddy_acp(本地 WorkBuddy,推荐) / openai(官方 API)
     #            / cli(本地智能体命令行) / simple(自定义 HTTP 接口)
     "backend": "workbuddy_acp",
+    # 主后端失败时自动切到哪个(留空 = 不切换)
+    "fallback_backend": "",
     "workbuddy_acp": {
         "reuse_session": True,     # 复用同一个隔离会话,这样追问能记得上下文
         "cwd": "",                 # 会话挂在哪个目录,留空用临时目录
@@ -26,6 +28,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "thought_level": "low",    # 思考强度:low 最快 / enabled 默认 / high / max
         "model": "",               # 留空 = 跟随 WorkBuddy 里选的模型;也可填 fast-model 等
         "warm_up": True,           # 启动时预热会话(实测能省掉第一次约 11 秒)
+        "gateway_url": "",         # 手动指定网关地址,如 127.0.0.1:57464;留空自动探测
+        "gateway_password": "",    # 网关开了密码鉴权时填(一般不用)
     },
     "api": {
         "base_url": "https://ark.cn-beijing.volces.com/api/v3",

@@ -95,6 +95,7 @@ class AnswerWindow(QWidget):
     hidden_by_user = Signal()
     save_requested = Signal(str)          # 参数:分类名(空字符串 = 未分类)
     open_collection_requested = Signal()
+    retry_requested = Signal()
 
     def __init__(self, cfg: dict, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -192,6 +193,11 @@ class AnswerWindow(QWidget):
         self._copy_button.clicked.connect(self.copy_answer)
         self._copy_button.setEnabled(False)
 
+        self._retry_button = QPushButton("重试", header)
+        self._retry_button.setToolTip("重新连接后端并重试这道题")
+        self._retry_button.clicked.connect(self.retry_requested.emit)
+        self._retry_button.setVisible(False)
+
         self._again_button = QPushButton("重新截图", header)
         self._again_button.setToolTip("重新框选题目")
         self._again_button.clicked.connect(self.recapture_requested.emit)
@@ -202,6 +208,7 @@ class AnswerWindow(QWidget):
         self._close_button.clicked.connect(self.hide_by_user)
 
         head_row.addWidget(self._save_button)
+        head_row.addWidget(self._retry_button)
         head_row.addWidget(self._copy_button)
         head_row.addWidget(self._again_button)
         head_row.addWidget(self._close_button)
@@ -280,6 +287,7 @@ class AnswerWindow(QWidget):
         self._followup.setEnabled(False)
         self._send_button.setEnabled(False)
         self._saved = False
+        self._retry_button.setVisible(False)
         self._save_button.setText("收藏")
         self._save_button.setEnabled(False)
         self._save_button.setToolTip("把这道题收进收藏夹(可以选分类)")
@@ -327,6 +335,7 @@ class AnswerWindow(QWidget):
             '<div style="color:#93A0B4;margin-top:10px">点右上角"重新截图"再试一次,或右键托盘图标打开设置检查 API Key / 模型名。</div>'
         )
         self._body.setHtml(body)
+        self._retry_button.setVisible(True)
         self._copy_button.setEnabled(True)
         self._followup.setEnabled(False)
         self._send_button.setEnabled(False)

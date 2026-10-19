@@ -182,6 +182,19 @@ class SettingsDialog(QDialog):
         test_layout.addWidget(self.test_button)
         test_layout.addWidget(self.test_result, 1)
         layout.addWidget(test_row)
+
+        fallback_row = QWidget(box)
+        fallback_layout = QHBoxLayout(fallback_row)
+        fallback_layout.setContentsMargins(0, 0, 0, 0)
+        fallback_layout.setSpacing(8)
+        fallback_layout.addWidget(QLabel("主后端失败时", fallback_row))
+        self.fallback_box = QComboBox(fallback_row)
+        self.fallback_box.addItem("不自动切换", "")
+        self.fallback_box.addItem("自动切到 豆包 API", "openai")
+        self.fallback_box.addItem("自动切到 自定义 HTTP 接口", "simple")
+        self.fallback_box.addItem("自动切到 本地 CLI", "cli")
+        fallback_layout.addWidget(self.fallback_box, 1)
+        layout.addWidget(fallback_row)
         return box
 
     def _build_workbuddy_page(self) -> QWidget:
@@ -230,6 +243,19 @@ class SettingsDialog(QDialog):
 
         self.wb_warm = QCheckBox("启动时预热会话(省掉第一次的冷启动等待)", page)
         form.addRow("", self.wb_warm)
+
+        self.wb_gateway = QLineEdit(page)
+        self.wb_gateway.setPlaceholderText("留空自动探测;也可填 127.0.0.1:端口")
+        self.wb_gateway.setToolTip(
+            "新版 WorkBuddy 的网关端口每次启动都会变;\n"
+            "找不到时可以先打开 WorkBuddy 点进一个对话,再点「测试连接」。"
+        )
+        form.addRow("网关地址", self.wb_gateway)
+
+        self.wb_gateway_pwd = QLineEdit(page)
+        self.wb_gateway_pwd.setEchoMode(QLineEdit.EchoMode.Password)
+        self.wb_gateway_pwd.setPlaceholderText("一般留空")
+        form.addRow("网关密码", self.wb_gateway_pwd)
 
         help_label = QLabel(_WORKBUDDY_HELP, page)
         help_label.setWordWrap(True)
@@ -449,6 +475,11 @@ class SettingsDialog(QDialog):
             index = combo.findData(str(get(self.cfg, "workbuddy_acp." + key, default) or ""))
             combo.setCurrentIndex(max(0, index))
         self.wb_warm.setChecked(bool(get(self.cfg, "workbuddy_acp.warm_up", True)))
+        self.wb_gateway.setText(str(get(self.cfg, "workbuddy_acp.gateway_url", "")))
+        self.wb_gateway_pwd.setText(str(get(self.cfg, "workbuddy_acp.gateway_password", "")))
+
+        fb = self.fallback_box.findData(str(get(self.cfg, "fallback_backend", "") or ""))
+        self.fallback_box.setCurrentIndex(max(0, fb))
 
         self.base_url.setText(str(get(self.cfg, "api.base_url", "")))
         self.api_key.setText(str(get(self.cfg, "api.api_key", "")))
@@ -615,6 +646,7 @@ class SettingsDialog(QDialog):
 
     def _collect(self, cfg: dict) -> dict:
         cfg["backend"] = str(self.backend_box.currentData() or "openai")
+        cfg["fallback_backend"] = str(self.fallback_box.currentData() or "")
 
         wb = cfg.setdefault("workbuddy_acp", {})
         wb["reuse_session"] = self.wb_reuse.isChecked()
@@ -623,6 +655,8 @@ class SettingsDialog(QDialog):
         wb["thought_level"] = str(self.wb_thought.currentData() or "")
         wb["model"] = str(self.wb_model.currentData() or "")
         wb["warm_up"] = self.wb_warm.isChecked()
+        wb["gateway_url"] = self.wb_gateway.text().strip()
+        wb["gateway_password"] = self.wb_gateway_pwd.text().strip()
 
         api = cfg.setdefault("api", {})
         api["base_url"] = self.base_url.text().strip() or "https://ark.cn-beijing.volces.com/api/v3"
