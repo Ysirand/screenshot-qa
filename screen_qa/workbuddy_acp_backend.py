@@ -22,9 +22,11 @@ import json
 import tempfile
 import threading
 import time
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Iterator
@@ -102,6 +104,118 @@ def _workbuddy_ports() -> list[int]:
     except Exception:
         pass
     return sorted(set(ports))
+
+
+def find_sidecar_pipe() -> str | None:
+    """找到 sidecar 的控制管道(5.8.3 起网关是按会话起的,靠它拉起来)。"""
+    try:
+        names = os.listdir(r"\\.\pipe\\")
+    except OSError:
+        return None
+    for name in names:
+        if "sidecar-control" in name:
+            return r"\\.\pipe\\" + name
+    return None
+
+
+def _pipe_rpc(pipe: str, payload: dict, want_id: int, timeout: float = 60.0) -> dict | None:
+    """往命名管道发一条 JSON-RPC,等 id 匹配的响应(通知会被跳过)。"""
+    box: dict = {}
+
+    def run() -> None:
+        objs: list[dict] = []
+        try:
+            handle = open(pipe, "r+b", buffering=0)
+            try:
+                handle.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+                buf = b""
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    chunk = handle.read(8192)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        try:
+                            objs.append(json.loads(line.decode("utf-8", "replace")))
+                        except ValueError:
+                            continue
+                    if any(o.get("id") == want_id for o in objs):
+                        break
+            finally:
+                handle.close()
+        except Exception as exc:
+            box["error"] = str(exc)
+        box["objects"] = objs
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout + 5)
+    for obj in box.get("objects", []):
+        if obj.get("id") == want_id:
+            return obj
+    return None
+
+
+def _sidecar_session() -> tuple[str, int, str]:
+    """通过 sidecar 拉起一个带登录凭据的 CLI 会话。
+
+    返回 (host, port, sessionId)。这是 WorkBuddy 5.8.3 的官方做法:
+    桌面端自己也是用 session.create 起 worker 的,只是它用的 bin/codebuddy
+    在这个版本里少打包了 dist/codebuddy,所以现在会启动失败。
+    我们直接用 node + codebuddy-lite-wb.mjs 绕过去。
+    """
+    from .cli_backend import _find_node, find_cli
+
+    pipe = find_sidecar_pipe()
+    if pipe is None:
+        raise BackendError(
+            "没找到 WorkBuddy 的 sidecar 控制管道。\n\n"
+            "请确认 WorkBuddy 桌面端正在运行(可以最小化),并且是登录状态。"
+        )
+
+    node = _find_node()
+    cli = find_cli()
+    if not node or not cli:
+        raise BackendError(
+            "找到了 WorkBuddy,但没找到它的 CLI / Node,无法自己拉起答题会话。\n"
+            "请在设置里手动填「网关地址」,或改用豆包官方 API。"
+        )
+
+    cwd = str(Path(str(tempfile.gettempdir())) / "screenqa_acp")
+    Path(cwd).mkdir(parents=True, exist_ok=True)
+    session_id = str(uuid.uuid4())
+
+    response = _pipe_rpc(pipe, {
+        "jsonrpc": "2.0", "id": 900, "method": "session.create",
+        "params": {
+            "sessionId": session_id,
+            "command": str(node),
+            "args": [str(cli), "--serve", "--session-id", session_id],
+            "cwd": cwd,
+            "env": {},
+            "port": 0,
+        },
+    }, 900)
+
+    if response is None:
+        raise BackendError(
+            "让 WorkBuddy 启动答题会话时超时了。\n"
+            "可以再点一次「重试」,或改用豆包官方 API。"
+        )
+    if "error" in response:
+        message = (response.get("error") or {}).get("message", "")
+        raise BackendError("WorkBuddy 启动答题会话失败:" + str(message)[:300])
+
+    endpoint = (response.get("result") or {}).get("acpEndpoint") or ""
+    parsed = _parse_manual(endpoint)
+    if parsed is None:
+        raise BackendError("WorkBuddy 没有返回可用的接口地址:" + endpoint)
+    host, port = parsed
+    log.info("sidecar 已拉起答题会话: %s (pid=%s)", endpoint,
+             (response.get("result") or {}).get("pid"))
+    return host, port, session_id
 
 
 def _parse_manual(value: str) -> tuple[str, int] | None:
@@ -295,6 +409,7 @@ class WorkBuddyAcpBackend:
         self._host = "127.0.0.1"
         self._initialized = False
         self._gateway_token: str | None = None
+        self._sidecar_session_id: str | None = None
         self._lock = threading.RLock()
         self._warmed = False
 
@@ -307,8 +422,15 @@ class WorkBuddyAcpBackend:
             if parsed is not None:
                 self._host, self._port = parsed
             else:
-                self._port = find_gateway_port(manual=manual)
-                self._host = "127.0.0.1"
+                try:
+                    self._port = find_gateway_port(manual=manual)
+                    self._host = "127.0.0.1"
+                except BackendError:
+                    # 5.8.3 的网关只在会话里存在 —— 自己拉一个
+                    log.info("没扫到网关,改用 sidecar 自建会话")
+                    host, port, session_id = _sidecar_session()
+                    self._host, self._port = host, port
+                    self._sidecar_session_id = session_id
         return "http://%s:%d%s" % (self._host, self._port, path)
 
     def _post(self, path: str, body: dict | None, *, stream: bool = False,
@@ -317,6 +439,8 @@ class WorkBuddyAcpBackend:
         request = urllib.request.Request(self._url(path), data=data, method="POST")
         request.add_header("Content-Type", "application/json")
         request.add_header("Accept", "text/event-stream, application/json")
+        # 5.8.3 起网关强制要求这个防 CSRF 的请求头,少了会 403
+        request.add_header("x-codebuddy-request", "1")
         token = self._token()
         if token:
             request.add_header("Authorization", "Bearer " + token)
@@ -478,9 +602,25 @@ class WorkBuddyAcpBackend:
             # 设置失败不影响答题,只是没那么快
             log.warning("调整会话参数失败(继续用默认值): %s", exc)
 
+    def close(self) -> None:
+        """退出时把 sidecar 拉起的会话关掉。"""
+        session_id, self._sidecar_session_id = self._sidecar_session_id, None
+        if not session_id:
+            return
+        pipe = find_sidecar_pipe()
+        if pipe is None:
+            return
+        try:
+            _pipe_rpc(pipe, {"jsonrpc": "2.0", "id": 901, "method": "session.kill",
+                             "params": {"sessionId": session_id}}, 901, 8)
+            log.info("已关闭 sidecar 会话: %s", session_id)
+        except Exception as exc:
+            log.debug("关闭 sidecar 会话失败: %s", exc)
+
     def reconnect(self) -> None:
         """丢弃连接/会话/端口缓存,下次提问重新找一遍。"""
         global _port_cache
+        self.close()
         _port_cache = None
         self._connection_id = None
         self._session_id = None

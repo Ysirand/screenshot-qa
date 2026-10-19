@@ -587,6 +587,11 @@ class ScreenQaApp(QObject):
         except Exception:
             pass
         self._cancel_worker()
+        try:
+            if hasattr(self.backend, "close"):
+                self.backend.close()
+        except Exception:
+            pass
         self.overlay.close_all()
         self.hotkey.unregister()
         self.tray.hide()
